@@ -1,0 +1,371 @@
+# LLM-Whisperer provider definitions.
+#
+# Each provider is driven entirely by config — no code change needed when a UI
+# updates, just fix the selectors here. Selectors are CSS or Playwright
+# locators. When a site changes its DOM, run with HEADLESS=false and use the
+# browser devtools to find the new selectors.
+#
+# Fields:
+#   url                : chat page to open
+#   requiresLogin      : if true, you must `wspr login <name>` once first
+#   loggedOutSelector  : visible when not authenticated → triggers LoginRequiredError
+#   newChatSelector    : clicked when newChat:true (or page reload if absent)
+#   inputSelector      : the prompt input box (textarea or [contenteditable])
+#   sendSelector       : send button; omit or leave empty to press Enter instead
+#   responseSelector   : matches EVERY assistant message block; last one is read
+#   stopSelector       : "stop generating" control shown while streaming
+#   timeoutMs          : max time to wait for a response (ms)
+#   stabilizeMs        : answer is "done" once its text stops changing for this long
+#   modelPickerTrigger : (optional) click this to open the model picker dropdown
+#   models             : (optional) map of model name → selector to click in picker
+#
+# Agent-client fields (all optional — relevant when a coding agent such as
+# opencode drives this provider; see docs/clients.md):
+#   maxPromptChars     : refuse rather than type more than this into the chat
+#                        box. A chat website silently truncates a long message
+#                        (or turns it into a file attachment), so a hard limit
+#                        turns a silent wrong answer into a clear 413.
+#   toolResultMaxChars : middle-out truncate a single <tool_result> body to
+#                        this, tried before giving up on the budget above.
+#   bufferToolTurns    : read the answer once after it settles instead of
+#                        streaming deltas, whenever the turn declares tools.
+#                        Default true — incremental scraping drops the tail on
+#                        a DOM re-render, which corrupts a JSON tool call.
+#   contextLimit       : advertised context window, for `wspr config <client>`
+#   outputLimit        : advertised max output tokens, likewise
+#   verified           : has this provider actually been driven end-to-end and
+#                        confirmed working, vs. a best-effort selector guess?
+#                        Defaults to true for API providers (a generic, tested
+#                        HTTP path), false for browser providers unless set
+#                        here. `wspr config opencode` appends " (untested)" to
+#                        an unverified browser model's display name.
+#
+# NOTE: ✓ = verified working. Others are best-effort starting points —
+# verify with HEADLESS=false on first run and fix selectors as needed.
+
+providers:
+
+  # ── Qwen (Alibaba) ──────────────────────────────────────────────────────────
+  # ✓ Verified working. requiresLogin via Google OAuth.
+  qwen:
+    verified: true
+    url: "https://chat.qwen.ai/"
+    requiresLogin: true
+    loggedOutSelector: "button:has-text('Log in'), button:has-text('登录')"
+    newChatSelector: "a:has-text('New Chat'), a:has-text('新对话')"
+    inputSelector: "textarea.message-input-textarea, textarea"
+    # Qwen's composer no longer submits on Enter — the button is the only way.
+    # chat.qwen.ai serves a Chinese UI to CN visitors (登录/发送/停止), so every
+    # text/aria selector below carries both spellings.
+    # 2026-11-16: probed live — the composer's submit control is
+    # button.send-button (aria-label="发送", black circular arrow). A full-page
+    # #splash-screen div intercepts pointer events on fresh page loads; it has
+    # no close button, so dismissOverlay force-removes it.
+    sendSelector: "button.send-button"
+    dismissSelector: "#splash-screen"
+    # A 2026 redesign renamed both of these (was `[class*='phase-answer']` /
+    # `:text('Skip')`); re-verified live against chat.qwen.ai.
+    responseSelector: ".custom-qwen-markdown"
+    stopSelector: "button[aria-label='Stop'], button[aria-label='停止'], button:has-text('停止')"
+    timeoutMs: 90000
+    stabilizeMs: 2000
+    # Sized for an agent client: a dozen tool schemas plus a file or two of
+    # tool results. Raise it if your provider accepts longer messages.
+    maxPromptChars: 60000
+    toolResultMaxChars: 12000
+    contextLimit: 131072
+    outputLimit: 8192
+    modelPickerTrigger: ""
+    models:
+      "qwen3-235b":    ""
+      "qwen3-30b":     ""
+      "qwen2.5-max":   ""
+      "qwen2.5-plus":  ""
+      "qwen2.5-coder": ""
+    # Declarative auto-login (email/password). Keep in sync with the live form —
+    # if the DOM shifts, run `wspr login qwen` with HEADLESS and fix selectors.
+    login:
+      method: password
+      trigger: "button:has-text('Log in'), button:has-text('登录')"
+      emailSelector: "input[type=email], input[name=email]"
+      passwordSelector: "input[type=password]"
+      submitSelector: "button[type=submit]"
+
+  # ── DeepSeek ────────────────────────────────────────────────────────────────
+  deepseek:
+    url: "https://chat.deepseek.com/"
+    requiresLogin: true
+    loggedOutSelector: "button:has-text('Log in'), a:has-text('Log in')"
+    newChatSelector: "button:has-text('New chat'), a:has-text('New chat')"
+    inputSelector: "textarea#chat-input, textarea[placeholder*='Message'], textarea"
+    sendSelector: ""
+    responseSelector: "div[class*='ds-markdown'], [class*='message-content']"
+    stopSelector: "button:has-text('Stop')"
+    # DeepSeek's thinking phase shows a loading animation, not a Stop button.
+    # Without this, isStreaming returns false during reasoning and the stream
+    # truncates to whatever prose appeared before thinking (was: 68 chars).
+    streamingSelector: "[class*='loading'], [class*='spin'], [class*='animate-pulse'], [class*='thinking']"
+    timeoutMs: 90000
+    stabilizeMs: 5000
+    modelPickerTrigger: ""
+    models:
+      "deepseek-v3": ""
+      "deepseek-r1": ""
+
+  # ── ChatGPT (OpenAI) ─────────────────────────────────────────────────────────
+  # Cloudflare protection may block headless — use HEADLESS=false if needed.
+  chatgpt:
+    url: "https://chatgpt.com/"
+    requiresLogin: true
+    loggedOutSelector: "button:has-text('Log in')"
+    newChatSelector: "a[data-testid='create-new-chat-button'], button:has-text('New chat')"
+    inputSelector: "div#prompt-textarea[contenteditable='true'], [contenteditable='true']"
+    sendSelector: "button[data-testid='send-button']"
+    responseSelector: "[data-message-author-role='assistant']"
+    stopSelector: "button[aria-label*='Stop'], button:has-text('Stop')"
+    timeoutMs: 120000
+    stabilizeMs: 2000
+    modelPickerTrigger: ""
+    models:
+      "gpt-4o":      ""
+      "gpt-4o-mini": ""
+      "o1":          ""
+      "o3-mini":     ""
+
+  # ── Claude (Anthropic) ───────────────────────────────────────────────────────
+  claude:
+    url: "https://claude.ai/new"
+    requiresLogin: true
+    loggedOutSelector: "button:has-text('Sign in'), a:has-text('Sign in')"
+    newChatSelector: "a[href='/new'], button:has-text('New chat')"
+    inputSelector: "div[contenteditable='true'].ProseMirror, [contenteditable='true']"
+    sendSelector: "button[aria-label='Send message'], button:has-text('Send')"
+    responseSelector: "div.font-claude-message, [data-testid='assistant-message']"
+    stopSelector: "button:has-text('Stop')"
+    timeoutMs: 120000
+    stabilizeMs: 2000
+    modelPickerTrigger: ""
+    models:
+      "claude-sonnet": ""
+      "claude-haiku":  ""
+      "claude-opus":   ""
+    # Claude logs in via an emailed magic link — no password. Auto-login fills
+    # the email only, then hands the tab to you.
+    login:
+      method: manual
+      emailSelector: "input[type=email], input[name=email]"
+
+  # ── GLM (Zhipu AI) ──────────────────────────────────────────────────────────
+  glm:
+    url: "https://chat.z.ai/"
+    requiresLogin: true
+    loggedOutSelector: "button:has-text('Log in'), a:has-text('Sign in')"
+    newChatSelector: "button:has-text('New Chat')"
+    inputSelector: "textarea"
+    sendSelector: "button[type='submit']"
+    responseSelector: "div.markdown-body, [class*='assistant']"
+    stopSelector: "button:has-text('Stop')"
+    timeoutMs: 90000
+    stabilizeMs: 2000
+    models:
+      "glm-4":      ""
+      "glm-4-plus": ""
+
+  # ── Kimi (Moonshot AI) ──────────────────────────────────────────────────────
+  # DOM-verified: input=div.chat-input-editor, newChat=a.new-chat-btn,
+  # loggedOut=.not-login-container. Response selector needs HEADLESS=false verify.
+  kimi:
+    url: "https://www.kimi.com/"
+    requiresLogin: true
+    loggedOutSelector: ".not-login-container"
+    newChatSelector: "a.new-chat-btn"
+    inputSelector: "div.chat-input-editor"
+    sendSelector: ""
+    responseSelector: "[class*='segment-content'], [class*='message-ai'], [class*='answer-text']"
+    stopSelector: "button:has-text('Stop'), [class*='stop']"
+    timeoutMs: 90000
+    stabilizeMs: 2000
+    models:
+      "kimi-k2":   ""
+      "kimi-k1.5": ""
+
+  # ── MiniMax Agent ────────────────────────────────────────────────────────────
+  # DOM-verified: input=div.tiptap.ProseMirror, loggedOut=button "Sign in".
+  # Model button "MiniMax-M3" visible on page. Response selector needs verify.
+  minimax:
+    url: "https://agent.minimax.io/"
+    requiresLogin: true
+    loggedOutSelector: "button:has-text('Sign in')"
+    newChatSelector: "button:has-text('New task'), button:has-text('New chat')"
+    inputSelector: "div.tiptap.ProseMirror"
+    sendSelector: ""
+    responseSelector: "[class*='message'][class*='assistant'], [class*='response-content'], [class*='answer']"
+    stopSelector: "button:has-text('Stop'), button[aria-label*='stop' i]"
+    timeoutMs: 120000
+    stabilizeMs: 2000
+    modelPickerTrigger: "button:has-text('MiniMax-M3'), button[aria-label*='model' i]"
+    models:
+      "minimax-m3":         "div:has-text('MiniMax-M3')"
+      "minimax-text-01":    "div:has-text('MiniMax-Text-01')"
+
+  # ── Grok (xAI) ──────────────────────────────────────────────────────────────
+  # DOM-verified: input=div.tiptap.ProseMirror[aria-label="Ask Grok anything"],
+  # send=button[aria-label="Submit"], loggedOut=button "Sign in".
+  grok:
+    url: "https://grok.com/"
+    requiresLogin: true
+    loggedOutSelector: "button:has-text('Sign in')"
+    newChatSelector: "a[href='/'], button:has-text('New chat')"
+    inputSelector: "div.tiptap.ProseMirror[aria-label='Ask Grok anything'], div.tiptap.ProseMirror"
+    sendSelector: "button[aria-label='Submit']"
+    responseSelector: "[data-testid*='message'], [class*='response'], [class*='message-bubble']"
+    stopSelector: "button[aria-label*='Stop' i], button:has-text('Stop')"
+    timeoutMs: 120000
+    stabilizeMs: 2000
+    modelPickerTrigger: ""
+    models:
+      "grok-3":       ""
+      "grok-3-mini":  ""
+      "grok-2":       ""
+
+  # ── Pi (Inflection AI) ───────────────────────────────────────────────────────
+  # ✓ VERIFIED end-to-end (no login required). Sent a real message and confirmed:
+  #   input  = textarea[data-testid="chat-composer-textbox"]
+  #   send   = button[data-testid="chat-composer-submit"]
+  #   newChat= button[data-testid="nav-new-chat"]
+  #   response container = div.text-body-alt-m.whitespace-pre-wrap
+  #     (this class is used ONLY by Pi's assistant turns — user messages use a
+  #      different class, so it is naturally excluded; .last() = the answer)
+  # No stopSelector: Pi has no reliable streaming indicator, so we rely on text
+  # stabilization (stabilizeMs) to detect completion.
+  pi:
+    verified: true
+    url: "https://pi.ai/talk"
+    requiresLogin: false
+    newChatSelector: "button[data-testid='nav-new-chat']"
+    inputSelector: "textarea[data-testid='chat-composer-textbox']"
+    sendSelector: "button[data-testid='chat-composer-submit']"
+    responseSelector: "div.text-body-alt-m.whitespace-pre-wrap"
+    timeoutMs: 90000
+    stabilizeMs: 1500
+
+  # ── ERNIE / Yiyan (Baidu) ────────────────────────────────────────────────────
+  # DOM-verified: input=[class*="editable"] (contenteditable, CSS modules),
+  # loggedOut=button "Login", chatViewer=#eb_chat_viewer (stable ID).
+  # Chinese-language UI — selectors use English where available, fallback to stable IDs.
+  ernie:
+    url: "https://yiyan.baidu.com/"
+    requiresLogin: true
+    loggedOutSelector: "button:has-text('Login')"
+    newChatSelector: "button:has-text('New'), a:has-text('New')"
+    inputSelector: "[class*='editable'][contenteditable='true'], textarea"
+    sendSelector: ""
+    responseSelector: "#eb_chat_viewer [class*='content'], #eb_chat_viewer [class*='answer']"
+    stopSelector: "button:has-text('Stop')"
+    timeoutMs: 90000
+    stabilizeMs: 2000
+    models:
+      "ernie-5":   ""
+      "ernie-4.5": ""
+      "ernie-4":   ""
+
+  # ── API-key providers (OpenAI-compatible) ─────────────────────────────────────
+  # These call a real HTTP API instead of driving a browser, for when you have
+  # an actual key. Any OpenAI-compatible endpoint works (OpenAI, DeepSeek, Groq,
+  # Together, …) — only baseUrl/model/keyEnv differ. The key is read from the
+  # named environment variable at request time; NEVER put keys in this file.
+  # Switch models per request with the "provider/model" form, e.g. "openai/gpt-4o".
+  openai:
+    api:
+      baseUrl: "https://api.openai.com/v1"
+      model: "gpt-4o-mini"
+      embedModel: "text-embedding-3-small"   # used by /v1/embeddings
+      keyEnv: "OPENAI_API_KEY"
+
+  # Google Gemini via its OpenAI-compatibility layer — has a free tier.
+  # Get a key at https://aistudio.google.com/apikey
+  gemini:
+    api:
+      baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai"
+      model: "gemini-2.5-flash"
+      keyEnv: "GEMINI_API_KEY"
+
+  # Groq — free tier, very fast inference. Key: https://console.groq.com/keys
+  groq:
+    api:
+      baseUrl: "https://api.groq.com/openai/v1"
+      model: "openai/gpt-oss-120b"
+      keyEnv: "GROQ_API_KEY"
+
+  # OpenRouter — one key, many models incl. ":free" variants.
+  # Key: https://openrouter.ai/keys
+  openrouter:
+    api:
+      baseUrl: "https://openrouter.ai/api/v1"
+      model: "openai/gpt-oss-120b:free"
+      keyEnv: "OPENROUTER_API_KEY"
+
+  # Cerebras — free tier, extremely fast. Key: https://cloud.cerebras.ai
+  cerebras:
+    api:
+      baseUrl: "https://api.cerebras.ai/v1"
+      model: "gpt-oss-120b"
+      keyEnv: "CEREBRAS_API_KEY"
+
+  # Mistral — free experimental tier. Key: https://console.mistral.ai/api-keys
+  mistral:
+    api:
+      baseUrl: "https://api.mistral.ai/v1"
+      model: "mistral-small-latest"
+      keyEnv: "MISTRAL_API_KEY"
+
+  # Cloudflare Workers AI — free daily allowance. The account id goes in the URL
+  # via ${CLOUDFLARE_ACCOUNT_ID} (resolved from the environment). Create an API
+  # token (Workers AI) and find your account id at https://dash.cloudflare.com
+  cloudflare:
+    api:
+      baseUrl: "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/v1"
+      model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+      keyEnv: "CLOUDFLARE_API_TOKEN"
+
+  # DigitalOcean Serverless Inference (GradientAI Platform) — one endpoint, many
+  # models (Llama, DeepSeek, Qwen, Mistral, plus commercial OpenAI/Anthropic).
+  # Create a "model access key" in the control panel under Inference → Manage →
+  # Model Access Keys. Switch models per request, e.g. "digitalocean/deepseek-r1-distill-llama-70b".
+  digitalocean:
+    api:
+      baseUrl: "https://inference.do-ai.run/v1"
+      model: "llama3.3-70b-instruct"
+      embedModel: "gte-large-en-v1.5"   # used by /v1/embeddings (also: bge-m3)
+      keyEnv: "DIGITALOCEAN_INFERENCE_KEY"
+
+# ── Profiles (API scope) ─────────────────────────────────────────────────────
+# A profile declares which providers/models a client sees, plus a display
+# label used by `wspr config <client>` (see docs/clients.md, docs/configuration.md).
+# Leaving a profile undeclared exposes every provider with no custom label —
+# declaring one here is otherwise equivalent (every provider, "*") but adds
+# the label. `wspr config opencode` marks each browser model's display name
+# with " (untested)" unless its `verified: true` (see qwen, pi above) —
+# that flag is the source of truth, not this list.
+profiles:
+  default:
+    label: "🤫 LLM Whisperer"
+    providers:
+      qwen: "*"
+      deepseek: "*"
+      chatgpt: "*"
+      claude: "*"
+      glm: "*"
+      kimi: "*"
+      minimax: "*"
+      grok: "*"
+      pi: "*"
+      ernie: "*"
+      openai: "*"
+      gemini: "*"
+      groq: "*"
+      openrouter: "*"
+      cerebras: "*"
+      mistral: "*"
+      cloudflare: "*"
+      digitalocean: "*"
