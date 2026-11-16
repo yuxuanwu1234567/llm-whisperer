@@ -110,9 +110,27 @@ export interface ProviderConfig {
    * Hard cap on the characters wspr will type into the chat box. A web chat
    * input silently truncates (or converts a long paste into a file
    * attachment), so an over-budget prompt must fail loudly instead. Undefined
-   * ⇒ unlimited. Browser providers only.
+   * ⇒ unlimited. Browser providers only. When `uploadThreshold` is set, an
+   * over-budget prompt is not rejected — it is routed to the file-upload
+   * channel instead (see `uploadThreshold`).
    */
   maxPromptChars?: number;
+  /**
+   * Prompts longer than this many characters are delivered as an attached
+   * .txt file instead of typed into the chat box: the full prompt text is
+   * dropped onto the provider's drop zone as a synthetic file, and a short
+   * `uploadNote` message is sent alongside it. This bypasses the composer's
+   * own length limit (chat.qwen.ai refuses inputs over ~131072 chars).
+   * Requires `dropZoneSelector`; `attachSelector` confirms the upload UI
+   * actually registered the file.
+   */
+  uploadThreshold?: number;
+  /** Element that receives the synthetic drop event (the chat drop zone). */
+  dropZoneSelector?: string;
+  /** An attachment card — polled to confirm the dropped file was accepted. */
+  attachSelector?: string;
+  /** Short message sent alongside the uploaded prompt file. */
+  uploadNote?: string;
   /**
    * Cap on a single `<tool_result>` body before it is middle-out truncated.
    * An agent's `read`/`bash` results are the thing that blows a prompt budget,
@@ -153,17 +171,24 @@ export interface ProviderConfig {
   api?: ApiProviderConfig;
   /** Present ⇒ the provider supports declarative auto-login (see {@link LoginConfig}). */
   login?: LoginConfig;
-  /**
-   * Has this provider actually been driven end-to-end and confirmed working,
-   * as opposed to a best-effort selector guess? Surfaced to client-config
-   * emitters (`wspr config opencode`, …) so an agent's model picker shows
-   * which entries to trust. Defaults to `true` for API-key providers (a
-   * generic, well-tested HTTP code path) and `false` for browser providers
-   * unless the provider explicitly sets it — see the per-provider `✓
-   * Verified working` comments in providers.yaml, which are the source of
-   * truth this flag mirrors.
-   */
-  verified?: boolean;
+ /**
+ * Has this provider actually been driven end-to-end and confirmed working,
+ * as opposed to a best-effort selector guess? Surfaced to client-config
+ * emitters (`wspr config opencode`, …) so an agent's model picker shows
+ * which entries to trust. Defaults to `true` for API-key providers (a
+ * generic, well-tested HTTP code path) and `false` for browser providers
+ * unless the provider explicitly sets it — see the per-provider `✓
+ * Verified working` comments in providers.yaml, which are the source of
+ * truth this flag mirrors.
+ */
+ verified?: boolean;
+ /**
+ * Delay in milliseconds after submitting a prompt, before waiting for the
+ * response to start. Prevents account bans from rapid-fire requests on
+ * providers like qwen/deepseek that rate-limit aggressively. Undefined ⇒ no
+ * delay.
+ */
+ sendDelayMs?: number;
 }
 
 /**

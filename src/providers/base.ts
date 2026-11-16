@@ -314,7 +314,11 @@ export class WebLLMProvider extends BaseProvider {
       const prompt = this.buildPrompt(plan.promptMessages, plan.needsPreamble, options);
 
       const before = await this.countResponses(page);
-      await this.submitPrompt(page, prompt);
+      const asFile =
+        this.config.uploadThreshold !== undefined &&
+        prompt.length > this.config.uploadThreshold &&
+        !!this.config.dropZoneSelector;
+      await (asFile ? this.submitPromptAsFile(page, prompt) : this.submitPrompt(page, prompt));
 
       // With tools declared, read the answer once after it settles instead of
       // streaming deltas. streamAnswer() drops the tail whenever the chat UI
@@ -441,6 +445,11 @@ export class WebLLMProvider extends BaseProvider {
       if (prompt.length <= maxPromptChars) return prompt;
     }
 
+    // Still over budget, but the provider has a file-upload channel: the
+    // prompt will be delivered as an attached .txt instead of typed, so the
+    // composer's own limit no longer applies (see submitPromptAsFile).
+    if (this.config.uploadThreshold && this.config.dropZoneSelector) return prompt;
+
     throw new PromptTooLargeError(this.name, prompt.length, maxPromptChars);
   }
 
@@ -553,12 +562,16 @@ export class WebLLMProvider extends BaseProvider {
     await page.waitForTimeout(300);
   }
 
-  protected async submitPrompt(page: Page, prompt: string): Promise<void> {
-    await this.dismissOverlay(page);
-    const input = page.locator(this.config.inputSelector).first();
-    await input.waitFor({ state: "visible", timeout: 15000 });
+ protected async submitPrompt(page: Page, prompt: string): Promise<void> {
+ await this.dismissOverlay(page);
+ const input = page.locator(this.config.inputSelector).first();
+ await input.waitFor({ state: "visible", timeout: 15000 });
 
-    if (this.config.sendSelector) {
+ if (this.config.sendDelayMs) {
+ await page.waitForTimeout(this.config.sendDelayMs);
+ }
+
+ if (this.config.sendSelector) {
       // A send click is verified, not assumed. A fill that lands before the
       // SPA hydrates leaves the DOM holding the text but the component's own
       // state unaware of it (React has not attached its listeners yet, so
@@ -598,6 +611,76 @@ export class WebLLMProvider extends BaseProvider {
     await input.fill(prompt);
     await input.dispatchEvent("input");
     await input.press("Enter");
+  }
+
+  /**
+   * Deliver an over-long prompt as an attached .txt file instead of typing
+   * it: the full prompt text is dropped onto the provider's drop zone as a
+   * synthetic drag-and-drop (a DataTransfer carrying one File, dispatched as
+   * dragenter/dragover/drop — the one path qwen's React app actually
+   * listens to; setInputFiles on its hidden input[type=file] is ignored),
+   * the upload is confirmed by waiting for an attachment card, and a short
+   * note is then typed and sent through the normal composer path. This is
+   * how inputs beyond the composer's own length limit (chat.qwen.ai:
+   * ~131072 chars) get through — the file goes to OSS, the note tells the
+   * model to read it.
+   */
+  protected async submitPromptAsFile(page: Page, prompt: string): Promise<void> {
+    await this.dismissOverlay(page);
+    const { dropZoneSelector, attachSelector, uploadNote } = this.config;
+    if (!dropZoneSelector) {
+      throw new Error(`${this.name}: uploadThreshold set but no dropZoneSelector — cannot deliver the prompt as a file`);
+    }
+
+    let attached = false;
+    for (let attempt = 0; attempt < 3 && !attached; attempt++) {
+      // The drop may be dispatched before the SPA hydrates its onDrop
+      // handler (same failure shape as submitPrompt's fill); the attachment
+      // card never appears, so wait and drop again.
+      //
+      // The browser-side code is passed as an IIFE string with the arguments
+      // JSON-embedded: this project's tsconfig has no DOM lib, so a typed
+      // callback referencing DataTransfer/File/document/DragEvent would fail
+      // to compile even though those globals exist in the page.
+      const dropScript =
+        `(args => {
+          const dt = new DataTransfer();
+          dt.items.add(new File([args.content], args.name, { type: "text/plain" }));
+          const target = document.querySelector(args.sel);
+          if (!target) return false;
+          for (const type of ["dragenter", "dragover", "drop"]) {
+            const ev = new DragEvent(type, { bubbles: true, cancelable: true });
+            Object.defineProperty(ev, "dataTransfer", { value: dt });
+            target.dispatchEvent(ev);
+          }
+          return true;
+        })(${JSON.stringify({ sel: dropZoneSelector, name: "prompt.txt", content: prompt })})`;
+      await page.evaluate(dropScript);
+      const card = attachSelector ? page.locator(attachSelector).first() : null;
+      if (card) {
+        attached = await card.waitFor({ state: "visible", timeout: 20_000 }).then(() => true, () => false);
+      } else {
+        await page.waitForTimeout(3000);
+        attached = true;
+      }
+      if (!attached) await page.waitForTimeout(2000);
+    }
+    if (!attached) {
+      throw new Error(
+        `${this.name}: dropped prompt.txt but no attachment card appeared ` +
+          `(drop zone "${dropZoneSelector}"${attachSelector ? `, card "${attachSelector}"` : ""})`,
+      );
+    }
+
+    // The file travels to object storage and gets parsed server-side; give
+    // that a moment to settle before sending the note, or the send can race
+    // the parse and the model answers without the file.
+    await page.waitForTimeout(3000);
+
+    await this.submitPrompt(
+      page,
+      uploadNote ?? "The complete prompt is in the attached file prompt.txt — read it in full and execute everything it says.",
+    );
   }
 
   // --- response streaming ------------------------------------------------

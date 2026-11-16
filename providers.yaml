@@ -67,11 +67,21 @@ providers:
     # `:text('Skip')`); re-verified live against chat.qwen.ai.
     responseSelector: ".custom-qwen-markdown"
     stopSelector: "button[aria-label='Stop'], button[aria-label='停止'], button:has-text('停止')"
-    timeoutMs: 90000
+    timeoutMs: 90000000
     stabilizeMs: 2000
     # Sized for an agent client: a dozen tool schemas plus a file or two of
     # tool results. Raise it if your provider accepts longer messages.
-    maxPromptChars: 60000
+    maxPromptChars: 6000000
+    # Over ~131072 chars the composer itself refuses the input, so an
+    # over-threshold prompt is delivered as an attached prompt.txt instead:
+    # dropped onto the drop zone as a synthetic drag-and-drop (the only path
+    # qwen's React app honors — its hidden input[type=file] and the "+"
+    # menu's filechooser are both ignored), confirmed via the attachment
+    # card, then a short note is sent through the composer.
+    uploadThreshold: 100000
+    dropZoneSelector: "#dropzone-container"
+    attachSelector: ".file-card-list .fileitem-btn"
+    uploadNote: "完整 prompt 在附件 prompt.txt 中——请完整阅读并执行其中的全部指令，不要遗漏。"
     toolResultMaxChars: 12000
     contextLimit: 131072
     outputLimit: 8192
@@ -123,7 +133,7 @@ providers:
     sendSelector: "button[data-testid='send-button']"
     responseSelector: "[data-message-author-role='assistant']"
     stopSelector: "button[aria-label*='Stop'], button:has-text('Stop')"
-    timeoutMs: 120000
+    timeoutMs: 12000000
     stabilizeMs: 2000
     modelPickerTrigger: ""
     models:
