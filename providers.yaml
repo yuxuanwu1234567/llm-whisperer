@@ -82,6 +82,10 @@ providers:
     dropZoneSelector: "#dropzone-container"
     attachSelector: ".file-card-list .fileitem-btn"
     uploadNote: "完整 prompt 在附件 prompt.txt 中——请完整阅读并执行其中的全部指令，不要遗漏。"
+    # The attachment card renders while the file is still uploading/parsing
+    # server-side; clicking send immediately races that parse (the model can
+    # answer without the file). Wait a few seconds after the card appears.
+    uploadSettleMs: 10000
     toolResultMaxChars: 12000
     contextLimit: 131072
     outputLimit: 8192

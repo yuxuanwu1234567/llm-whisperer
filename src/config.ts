@@ -132,6 +132,14 @@ export interface ProviderConfig {
   /** Short message sent alongside the uploaded prompt file. */
   uploadNote?: string;
   /**
+   * After the attachment card appears, wait this many milliseconds before
+   * clicking send. The file is still travelling to object storage and being
+   * parsed server-side when the card first renders; sending the note too
+   * early races that parse and the model can answer without the file.
+   * Undefined ⇒ 5000.
+   */
+  uploadSettleMs?: number;
+  /**
    * Cap on a single `<tool_result>` body before it is middle-out truncated.
    * An agent's `read`/`bash` results are the thing that blows a prompt budget,
    * so they are trimmed first. Undefined ⇒ untrimmed.

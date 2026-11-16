@@ -338,7 +338,12 @@ export class WebLLMProvider extends BaseProvider {
           const out = scanScanner.push(final);
 
           if (out.calls.length > 0) {
-            if (out.text) yield { type: "text", text: out.text };
+            // The turn carries a tool call, so the prose around the call is
+            // chaff: models prefix the block with "Let me explore the
+            // project structure first."-style filler, and clients that treat
+            // any content as a final answer (traecn ends the turn instead of
+            // executing the tool) choke on it. Drop everything outside the
+            // block — only the extracted call(s) are delivered.
             for (const call of out.calls) {
               emitted.push(call);
               yield { type: "tool_call", call };
@@ -367,7 +372,7 @@ export class WebLLMProvider extends BaseProvider {
             `\n[wspr:re-prompt] ${this.name}: model returned prose, re-prompting (attempt ${retryCount}/${maxRetries})\n`,
           );
           const retryPrompt =
-            "You replied with prose instead of calling a tool. You MUST call a tool now " +
+            "Please reply and think in prose, rather than calling tools. You MUST call a tool now " +
             "using the <tool_call> format. Do not explain what you will do — just call the tool.";
           currentBefore = await this.countResponses(page);
           await this.submitPrompt(page, retryPrompt);
@@ -376,7 +381,10 @@ export class WebLLMProvider extends BaseProvider {
         for await (const delta of this.streamAnswer(page, before, options.signal)) {
           if (scanner) {
             const out = scanner.push(delta);
-            if (out.text) yield { type: "text", text: out.text };
+            // Same chaff rule as the buffered path: text emitted in the same
+            // batch as a completed call is prose around the tool-call block
+            // — dropped so the client only ever sees the call itself.
+            if (out.text && out.calls.length === 0) yield { type: "text", text: out.text };
             for (const call of out.calls) {
               emitted.push(call);
               yield { type: "tool_call", call };
@@ -389,7 +397,9 @@ export class WebLLMProvider extends BaseProvider {
 
       if (scanner) {
         const out = scanner.flush();
-        if (out.text) yield { type: "text", text: out.text };
+        // Tail prose after the last tool-call block: dropped with the call
+        // present (chaff rule); kept when the turn ended as pure prose.
+        if (out.text && out.calls.length === 0) yield { type: "text", text: out.text };
         for (const call of out.calls) {
           emitted.push(call);
           yield { type: "tool_call", call };
@@ -627,7 +637,7 @@ export class WebLLMProvider extends BaseProvider {
    */
   protected async submitPromptAsFile(page: Page, prompt: string): Promise<void> {
     await this.dismissOverlay(page);
-    const { dropZoneSelector, attachSelector, uploadNote } = this.config;
+    const { dropZoneSelector, attachSelector, uploadNote, uploadSettleMs } = this.config;
     if (!dropZoneSelector) {
       throw new Error(`${this.name}: uploadThreshold set but no dropZoneSelector — cannot deliver the prompt as a file`);
     }
@@ -675,7 +685,7 @@ export class WebLLMProvider extends BaseProvider {
     // The file travels to object storage and gets parsed server-side; give
     // that a moment to settle before sending the note, or the send can race
     // the parse and the model answers without the file.
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(uploadSettleMs ?? 5000);
 
     await this.submitPrompt(
       page,
