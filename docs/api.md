@@ -620,7 +620,7 @@ curl http://localhost:9777/p/email1/health   # only what email1 exposes
 ```json
 {
   "ok": true,
-  "providers": ["qwen", "deepseek", "chatgpt", "claude", "glm", "kimi", "minimax", "grok", "pi", "ernie"]
+  "providers": ["qwen", "deepseek", "chatgpt", "claude", "glm", "kimi", "minimax", "grok", "pi", "ernie", "doubao"]
 }
 ```
 

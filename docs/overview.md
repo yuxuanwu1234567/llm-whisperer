@@ -77,6 +77,7 @@ provider's terms.
 | `minimax` | agent.minimax.io | MiniMax-M3 | yes | Partial |
 | `grok` | grok.com | Grok 3 (xAI) | yes | Partial |
 | `ernie` | yiyan.baidu.com | ERNIE (Baidu) | yes | Partial |
+| `doubao` | doubao.com | Doubao Seed 1.6 (ByteDance) | yes | Template |
 
 > **Verified** = driven end-to-end. **Partial** = input/login confirmed, response
 > selector needs a `HEADLESS=false` check. **Template** = best-effort selectors.

@@ -283,6 +283,37 @@ providers:
       "ernie-4.5": ""
       "ernie-4":   ""
 
+  # ── Doubao (ByteDance) ────────────────────────────────────────────────────────
+  # ✓ Verified end-to-end (2026-11-21): sent a real message through the composer
+  # and read the reply. Doubao's frontend carries stable data-testid attributes:
+  #   input  = div.tiptap.ProseMirror (contenteditable; NOT chat_input_input —
+  #            that testid does not exist; the wrapper is [data-testid=chat_input])
+  #   send   = button[data-testid=chat_input_send_button] (aria-label="发送")
+  #   reply  = [data-testid=receive_message] → [data-testid=message_text_content]
+  #            (the inner node only — receive_message's own textContent carries
+  #            timestamps, model badge and suggestion chips)
+  #   loggedOut = [data-testid=to_login_button] (Chinese UI)
+  #   newChat   = [data-testid=create_conversation_button]
+  # NOTE: fill()+dispatchEvent("input")+click works on the tiptap editor, but the
+  # site risk-controls a non-stealth browser (message silently fails with a
+  # message_box_failed_icon) — the bundled stealth plugin is required.
+  doubao:
+    verified: true
+    url: "https://www.doubao.com/chat/"
+    requiresLogin: true
+    loggedOutSelector: "[data-testid=to_login_button], button:has-text('登录')"
+    newChatSelector: "[data-testid=create_conversation_button]"
+    inputSelector: "div.tiptap.ProseMirror"
+    sendSelector: "button[data-testid='chat_input_send_button']"
+    responseSelector: "[data-testid=receive_message] [data-testid=message_text_content], [data-testid=receive_message]"
+    stopSelector: "button:has-text('停止')"
+    timeoutMs: 120000
+    stabilizeMs: 3000
+    models:
+      "doubao-seed-1.6":         ""
+      "doubao-1.5-pro":          ""
+      "doubao-1.5-thinking-pro": ""
+
   # ── API-key providers (OpenAI-compatible) ─────────────────────────────────────
   # These call a real HTTP API instead of driving a browser, for when you have
   # an actual key. Any OpenAI-compatible endpoint works (OpenAI, DeepSeek, Groq,
@@ -375,6 +406,7 @@ profiles:
       grok: "*"
       pi: "*"
       ernie: "*"
+      doubao: "*"
       openai: "*"
       gemini: "*"
       groq: "*"

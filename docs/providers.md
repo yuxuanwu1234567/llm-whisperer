@@ -14,6 +14,7 @@
 | `minimax` | agent.minimax.io | MiniMax-M3 | yes | Partial — input/login verified |
 | `grok` | grok.com | Grok 3 (xAI) | yes | Partial — input/send verified |
 | `ernie` | yiyan.baidu.com | ERNIE (Baidu) | yes | Partial — input/login verified |
+| `doubao` | doubao.com | Doubao Seed 1.6 (ByteDance) | yes | Template |
 
 **Verified ✓** — driven end-to-end; a real message returned a correct response.
 `pi` requires no login, making it the easiest to try first.
